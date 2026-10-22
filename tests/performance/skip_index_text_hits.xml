@@ -1,0 +1,184 @@
+<!--
+    Skip indexes over web strings at scale: `ngrambf_v1`, `tokenbf_v1`, `bloom_filter` and `text` on `URL`, `text` on `Title`
+    (`text` is GA since 26.2, no setting needed). Measured: the index builds (`CLEAR INDEX` + `MATERIALIZE INDEX`, shell queries
+    with `mutations_sync = 2`); searches for frequent terms, one query each; rare and absent terms grouped into two `UNION ALL`
+    statements, each branch pinned to its index by `force_data_skipping_indices` and `ignore_data_skipping_indices`; full scans
+    with `use_skip_indexes = 0` as controls.
+    `ski`: 30 M rows of `hits_100m_single`, 8 partitions of one part, so a build runs 8 parts in parallel; the setup materializes
+    the indexes one at a time (all five in one mutation exceed 12 GB of memory). The `tokenbf_v1` build runs on one partition:
+    a part takes about a second, and of 8 in parallel on 16 vCPUs with SMT, two sharing a core made some runs 30% slower.
+    The setup runs every timed search once and checks its result against a full scan, and its `SelectedMarks` against the
+    granules that hold a match: equal for `text`, at most a quarter of the other granules more for the bloom filters.
+    Per server and invocation: 30 M rows; 10 GB written by the setup, 15 GB by the timed builds; no S3.
+-->
+<test run_all_queries="1" max_query_seconds="60">
+
+<tags><tag>long</tag></tags>
+
+<settings>
+    <max_execution_time>0</max_execution_time>
+    <mutations_sync>2</mutations_sync>
+</settings>
+
+<substitutions>
+    <substitution>
+        <name>text_group</name>
+        <values>
+            <value>SELECT count() AS c, sum(length(Title)) FROM ski WHERE hasToken(URL, 'google') SETTINGS force_data_skipping_indices = 'idx_url_text', ignore_data_skipping_indices = 'idx_url_ngram,idx_url_token,idx_url_bloom'
+    UNION ALL SELECT count() AS c, sum(length(Title)) FROM ski WHERE hasToken(URL, 'youtube') SETTINGS force_data_skipping_indices = 'idx_url_text', ignore_data_skipping_indices = 'idx_url_ngram,idx_url_token,idx_url_bloom'
+    UNION ALL SELECT count() AS c, sum(length(Title)) FROM ski WHERE hasToken(URL, 'facebook') SETTINGS force_data_skipping_indices = 'idx_url_text', ignore_data_skipping_indices = 'idx_url_ngram,idx_url_token,idx_url_bloom'
+    UNION ALL SELECT count() AS c, sum(length(Title)) FROM ski WHERE hasAnyTokens(URL, ['google', 'zqxjkvwy', 'wikipedia']) SETTINGS force_data_skipping_indices = 'idx_url_text', ignore_data_skipping_indices = 'idx_url_ngram,idx_url_token,idx_url_bloom'
+    UNION ALL SELECT count() AS c, sum(length(Title)) FROM ski WHERE hasToken(URL, 'zqxjkvwy') SETTINGS force_data_skipping_indices = 'idx_url_text', ignore_data_skipping_indices = 'idx_url_ngram,idx_url_token,idx_url_bloom'
+    UNION ALL SELECT count() AS c, sum(length(URL)) FROM ski WHERE hasAllTokens(Title, ['купить', 'Холодильник']) SETTINGS force_data_skipping_indices = 'idx_title_text'
+    UNION ALL SELECT count() AS c, sum(length(URL)) FROM ski WHERE hasToken(Title, 'zqxjkvwy') SETTINGS force_data_skipping_indices = 'idx_title_text'</value>
+        </values>
+    </substitution>
+    <substitution>
+        <name>bloom_group</name>
+        <values>
+            <value>SELECT count() AS c, sum(length(Title)) FROM ski WHERE hasToken(URL, 'zqxjkvwy') SETTINGS force_data_skipping_indices = 'idx_url_token', ignore_data_skipping_indices = 'idx_url_ngram,idx_url_bloom,idx_url_text'
+    UNION ALL SELECT count() AS c, sum(length(Title)) FROM ski WHERE hasToken(URL, 'zqxjkvwa') SETTINGS force_data_skipping_indices = 'idx_url_token', ignore_data_skipping_indices = 'idx_url_ngram,idx_url_bloom,idx_url_text'
+    UNION ALL SELECT count() AS c, sum(length(Title)) FROM ski WHERE hasToken(URL, 'zqxjkvwb') SETTINGS force_data_skipping_indices = 'idx_url_token', ignore_data_skipping_indices = 'idx_url_ngram,idx_url_bloom,idx_url_text'
+    UNION ALL SELECT count() AS c, sum(length(Title)) FROM ski WHERE URL LIKE '%zqxjkvwy%' SETTINGS force_data_skipping_indices = 'idx_url_ngram', ignore_data_skipping_indices = 'idx_url_token,idx_url_bloom,idx_url_text'
+    UNION ALL SELECT count() AS c, sum(length(Title)) FROM ski WHERE URL LIKE '%zqxjkvwa%' SETTINGS force_data_skipping_indices = 'idx_url_ngram', ignore_data_skipping_indices = 'idx_url_token,idx_url_bloom,idx_url_text'
+    UNION ALL SELECT count() AS c, sum(length(Title)) FROM ski WHERE URL LIKE '%zqxjkvwb%' SETTINGS force_data_skipping_indices = 'idx_url_ngram', ignore_data_skipping_indices = 'idx_url_token,idx_url_bloom,idx_url_text'
+    UNION ALL SELECT count() AS c, sum(length(Title)) FROM ski WHERE URL = 'http://komme%2F27.0.1453.116' SETTINGS force_data_skipping_indices = 'idx_url_bloom', ignore_data_skipping_indices = 'idx_url_ngram,idx_url_token,idx_url_text'
+    UNION ALL SELECT count() AS c, sum(length(Title)) FROM ski WHERE URL = 'http://no.such.host/zqxjkvwy' SETTINGS force_data_skipping_indices = 'idx_url_bloom', ignore_data_skipping_indices = 'idx_url_ngram,idx_url_token,idx_url_text'
+    UNION ALL SELECT count() AS c, sum(length(Title)) FROM ski WHERE URL = 'http://no.such.host/zqxjkvwa' SETTINGS force_data_skipping_indices = 'idx_url_bloom', ignore_data_skipping_indices = 'idx_url_ngram,idx_url_token,idx_url_text'
+    UNION ALL SELECT count() AS c, sum(length(Title)) FROM ski WHERE URL IN ('http://komme%2F27.0.1453.116', 'http://irr.ru/index.php?showalbum/login-leniya7777294,938303130', 'http://no.such.host/zqxjkvwy') SETTINGS force_data_skipping_indices = 'idx_url_bloom', ignore_data_skipping_indices = 'idx_url_ngram,idx_url_token,idx_url_text'</value>
+        </values>
+    </substitution>
+</substitutions>
+
+<create_query>
+    CREATE TABLE ski (CounterID UInt32, EventDate Date, UserID UInt64, EventTime DateTime, URL String, Title String)
+    ENGINE = MergeTree PARTITION BY intHash32(UserID) % 8 ORDER BY (CounterID, EventDate, intHash32(UserID), EventTime)
+    SETTINGS old_parts_lifetime = 10
+</create_query>
+
+<fill_query>INSERT INTO ski SELECT CounterID, EventDate, UserID, EventTime, URL, Title FROM hits_100m_single WHERE intHash64(WatchID) % 10 &lt; 3 SETTINGS max_insert_threads = 16, max_partitions_per_insert_block = 0</fill_query>
+<fill_query>ALTER TABLE ski MODIFY SETTING lock_acquire_timeout_for_background_operations = 600</fill_query>
+<fill_query>OPTIMIZE TABLE ski FINAL SETTINGS optimize_throw_if_noop = 1, optimize_skip_merged_partitions = 1</fill_query>
+<fill_query>
+    ALTER TABLE ski
+        ADD INDEX idx_url_ngram URL TYPE ngrambf_v1(4, 32768, 3, 0) GRANULARITY 1,
+        ADD INDEX idx_url_token URL TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 1,
+        ADD INDEX idx_url_bloom URL TYPE bloom_filter(0.01) GRANULARITY 1,
+        ADD INDEX idx_url_text URL TYPE text(tokenizer = 'splitByNonAlpha'),
+        ADD INDEX idx_title_text Title TYPE text(tokenizer = 'splitByNonAlpha')
+</fill_query>
+<fill_query>ALTER TABLE ski MATERIALIZE INDEX idx_url_ngram</fill_query>
+<fill_query>ALTER TABLE ski MATERIALIZE INDEX idx_url_token</fill_query>
+<fill_query>ALTER TABLE ski MATERIALIZE INDEX idx_url_bloom</fill_query>
+<fill_query>ALTER TABLE ski MATERIALIZE INDEX idx_url_text</fill_query>
+<fill_query>ALTER TABLE ski MATERIALIZE INDEX idx_title_text</fill_query>
+
+<fill_query>SELECT throwIf(count() != 8) FROM system.parts WHERE database = 'default' AND table = 'ski' AND active</fill_query>
+<fill_query>SELECT throwIf(count() != 5 OR min(data_compressed_bytes) = 0) FROM system.data_skipping_indices WHERE database = 'default' AND table = 'ski'</fill_query>
+<fill_query>
+    SELECT throwIf((
+        count(),
+        countIf(hasToken(URL, 'yandex')), sumIf(length(Title), hasToken(URL, 'yandex')),
+        countIf(URL LIKE '%yandex%'), sumIf(length(Title), URL LIKE '%yandex%'),
+        countIf(URL LIKE '%google%'), sumIf(length(Title), URL LIKE '%google%'),
+        countIf(hasToken(URL, 'google')), sumIf(length(Title), hasToken(URL, 'google')),
+        countIf(hasToken(URL, 'youtube')), sumIf(length(Title), hasToken(URL, 'youtube')),
+        countIf(hasToken(URL, 'facebook')), sumIf(length(Title), hasToken(URL, 'facebook')),
+        countIf(hasAnyTokens(URL, ['google', 'zqxjkvwy', 'wikipedia'])), sumIf(length(Title), hasAnyTokens(URL, ['google', 'zqxjkvwy', 'wikipedia'])),
+        countIf(multiSearchAny(URL, ['google', 'zqxjkvwy', 'wikipedia'])), sumIf(length(Title), multiSearchAny(URL, ['google', 'zqxjkvwy', 'wikipedia'])),
+        countIf(URL IN ('http://komme%2F27.0.1453.116', 'http://irr.ru/index.php?showalbum/login-leniya7777294,938303130', 'http://no.such.host/zqxjkvwy')),
+        sumIf(length(Title), URL IN ('http://komme%2F27.0.1453.116', 'http://irr.ru/index.php?showalbum/login-leniya7777294,938303130', 'http://no.such.host/zqxjkvwy')),
+        countIf(URL = 'http://komme%2F27.0.1453.116'), sumIf(length(Title), URL = 'http://komme%2F27.0.1453.116'),
+        countIf(hasToken(Title, 'купить')), sumIf(length(URL), hasToken(Title, 'купить')),
+        countIf(hasAllTokens(Title, ['купить', 'Холодильник'])), sumIf(length(URL), hasAllTokens(Title, ['купить', 'Холодильник'])),
+        countIf(hasToken(URL, 'zqxjkvwy') OR hasToken(URL, 'zqxjkvwa') OR hasToken(URL, 'zqxjkvwb') OR URL LIKE '%zqxjkvwy%' OR URL LIKE '%zqxjkvwa%'
+            OR URL LIKE '%zqxjkvwb%' OR URL = 'http://no.such.host/zqxjkvwy' OR URL = 'http://no.such.host/zqxjkvwa' OR hasToken(Title, 'zqxjkvwy'))
+    ) != (29998897, 4519256, 482063844, 4525928, 482661559, 2260, 223402, 1464, 144770, 1431, 142697, 175, 16164, 1465, 144848, 2267, 223656,
+        196, 21393, 196, 21393, 1523028, 109420441, 2592, 200763, 0))
+    FROM ski SETTINGS use_skip_indexes = 0
+</fill_query>
+<fill_query>SELECT throwIf((count(), sum(length(Title))) != (4519256, 482063844)) FROM ski WHERE hasToken(URL, 'yandex') SETTINGS force_data_skipping_indices = 'idx_url_text', ignore_data_skipping_indices = 'idx_url_ngram,idx_url_token,idx_url_bloom', log_comment = 'skip_index_text_hits.q5'</fill_query>
+<fill_query>SELECT throwIf((count(), sum(length(Title))) != (2260, 223402)) FROM ski WHERE URL LIKE '%google%' SETTINGS force_data_skipping_indices = 'idx_url_text', ignore_data_skipping_indices = 'idx_url_ngram,idx_url_token,idx_url_bloom', log_comment = 'skip_index_text_hits.q6'</fill_query>
+<fill_query>SELECT throwIf((count(), sum(length(URL))) != (1523028, 109420441)) FROM ski WHERE hasToken(Title, 'купить') SETTINGS force_data_skipping_indices = 'idx_title_text', log_comment = 'skip_index_text_hits.q7'</fill_query>
+<fill_query>
+    SELECT throwIf(arraySort(groupArray((c, `sum(length(Title))`))) != [(0, 0), (0, 0), (175, 16164), (1431, 142697), (1464, 144770), (1465, 144848), (2592, 200763)])
+    FROM ({text_group}) SETTINGS log_comment = 'skip_index_text_hits.q8'
+</fill_query>
+<fill_query>SELECT throwIf((count(), sum(length(Title))) != (1464, 144770)) FROM ski WHERE hasToken(URL, 'google') SETTINGS force_data_skipping_indices = 'idx_url_token', ignore_data_skipping_indices = 'idx_url_ngram,idx_url_bloom,idx_url_text', log_comment = 'skip_index_text_hits.q9'</fill_query>
+<fill_query>SELECT throwIf((count(), sum(length(Title))) != (4525928, 482661559)) FROM ski WHERE URL LIKE '%yandex%' SETTINGS force_data_skipping_indices = 'idx_url_ngram', ignore_data_skipping_indices = 'idx_url_token,idx_url_bloom,idx_url_text', log_comment = 'skip_index_text_hits.q10'</fill_query>
+<fill_query>SELECT throwIf((count(), sum(length(Title))) != (2260, 223402)) FROM ski WHERE URL LIKE '%google%' SETTINGS force_data_skipping_indices = 'idx_url_ngram', ignore_data_skipping_indices = 'idx_url_token,idx_url_bloom,idx_url_text', log_comment = 'skip_index_text_hits.q11'</fill_query>
+<fill_query>SELECT throwIf((count(), sum(length(Title))) != (2267, 223656)) FROM ski WHERE multiSearchAny(URL, ['google', 'zqxjkvwy', 'wikipedia']) SETTINGS force_data_skipping_indices = 'idx_url_ngram', ignore_data_skipping_indices = 'idx_url_token,idx_url_bloom,idx_url_text', log_comment = 'skip_index_text_hits.q12'</fill_query>
+<fill_query>
+    SELECT throwIf(arraySort(groupArray((c, `sum(length(Title))`))) != [(0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (0, 0), (196, 21393), (196, 21393)])
+    FROM ({bloom_group}) SETTINGS log_comment = 'skip_index_text_hits.q13'
+</fill_query>
+<fill_query>
+    SELECT throwIf(arraySort(groupArray((c, s))) != [(0, 0), (1464, 144770), (2260, 223402)]) FROM
+    (
+        SELECT count() AS c, sum(length(Title)) AS s FROM ski WHERE hasToken(URL, 'google')
+        UNION ALL SELECT count(), sum(length(Title)) FROM ski WHERE URL LIKE '%google%'
+        UNION ALL SELECT count(), sum(length(Title)) FROM ski WHERE hasToken(URL, 'zqxjkvwy')
+    )
+    SETTINGS use_skip_indexes = 0
+</fill_query>
+<fill_query>SYSTEM FLUSH LOGS query_log</fill_query>
+<fill_query>
+    SELECT throwIf(count() != 9 OR countIf(if(q &lt;= 8, m != need, m > need + (total - need) / 4)) != 0,
+        'a tagged index query is missing in query_log, or it selected other granules than hold a match (text) or too many (bloom filters)')
+    FROM
+    (
+        SELECT toUInt8(substring(log_comment, 23)) AS q, ProfileEvents['SelectedMarks'] AS m FROM system.query_log
+        WHERE type = 'QueryFinish' AND log_comment LIKE 'skip_index_text_hits.q%'
+            AND event_time >= (SELECT metadata_modification_time FROM system.tables WHERE database = 'default' AND name = 'ski')
+    ) AS l
+    INNER JOIN
+    (
+        SELECT t.1 AS q, t.2 AS need, t.3 * n AS total FROM
+        (
+            SELECT count() AS n, countIf(yandex) AS yandex, countIf(like_yandex) AS like_yandex, countIf(like_google) AS like_google, countIf(google) AS google,
+                countIf(youtube) AS youtube, countIf(facebook) AS facebook, countIf(any_tokens) AS any_tokens, countIf(msa) AS msa, countIf(in_list) AS in_list,
+                countIf(komme) AS komme, countIf(kupit) AS kupit, countIf(all_tokens) AS all_tokens
+            FROM
+            (
+                SELECT max(hasToken(URL, 'yandex')) AS yandex, max(URL LIKE '%yandex%') AS like_yandex, max(URL LIKE '%google%') AS like_google,
+                    max(hasToken(URL, 'google')) AS google, max(hasToken(URL, 'youtube')) AS youtube, max(hasToken(URL, 'facebook')) AS facebook,
+                    max(hasAnyTokens(URL, ['google', 'zqxjkvwy', 'wikipedia'])) AS any_tokens, max(multiSearchAny(URL, ['google', 'zqxjkvwy', 'wikipedia'])) AS msa,
+                    max(URL IN ('http://komme%2F27.0.1453.116', 'http://irr.ru/index.php?showalbum/login-leniya7777294,938303130', 'http://no.such.host/zqxjkvwy')) AS in_list,
+                    max(URL = 'http://komme%2F27.0.1453.116') AS komme, max(hasToken(Title, 'купить')) AS kupit, max(hasAllTokens(Title, ['купить', 'Холодильник'])) AS all_tokens
+                FROM ski GROUP BY _part, intDiv(_part_offset, 8192)
+            )
+        )
+        ARRAY JOIN [(5, yandex, 1), (6, like_google, 1), (7, kupit, 1), (8, google + youtube + facebook + any_tokens + all_tokens, 7), (9, google, 1),
+            (10, like_yandex, 1), (11, like_google, 1), (12, msa, 1), (13, komme + in_list, 10)] AS t
+    ) AS d USING q
+    SETTINGS use_skip_indexes = 0
+</fill_query>
+
+<query type="shell"><![CDATA[${CLICKHOUSE_CLIENT} --mutations_sync 2 --query "ALTER TABLE ski CLEAR INDEX idx_url_ngram, MATERIALIZE INDEX idx_url_ngram"]]></query>
+<query type="shell"><![CDATA[${CLICKHOUSE_CLIENT} --mutations_sync 2 --query "ALTER TABLE ski CLEAR INDEX idx_url_token IN PARTITION 0, MATERIALIZE INDEX idx_url_token IN PARTITION 0"]]></query>
+<query type="shell"><![CDATA[${CLICKHOUSE_CLIENT} --mutations_sync 2 --query "ALTER TABLE ski CLEAR INDEX idx_url_bloom, MATERIALIZE INDEX idx_url_bloom"]]></query>
+<query type="shell"><![CDATA[${CLICKHOUSE_CLIENT} --mutations_sync 2 --query "ALTER TABLE ski CLEAR INDEX idx_url_text, MATERIALIZE INDEX idx_url_text"]]></query>
+<query type="shell"><![CDATA[${CLICKHOUSE_CLIENT} --mutations_sync 2 --query "ALTER TABLE ski CLEAR INDEX idx_title_text, MATERIALIZE INDEX idx_title_text"]]></query>
+
+<query>SELECT count(), sum(length(Title)) FROM ski WHERE hasToken(URL, 'yandex') FORMAT Null SETTINGS force_data_skipping_indices = 'idx_url_text', ignore_data_skipping_indices = 'idx_url_ngram,idx_url_token,idx_url_bloom'</query>
+<query>SELECT count(), sum(length(Title)) FROM ski WHERE URL LIKE '%google%' FORMAT Null SETTINGS force_data_skipping_indices = 'idx_url_text', ignore_data_skipping_indices = 'idx_url_ngram,idx_url_token,idx_url_bloom'</query>
+<query>SELECT count(), sum(length(URL)) FROM ski WHERE hasToken(Title, 'купить') FORMAT Null SETTINGS force_data_skipping_indices = 'idx_title_text'</query>
+<query>
+    {text_group}
+    FORMAT Null
+</query>
+<query>SELECT count(), sum(length(Title)) FROM ski WHERE hasToken(URL, 'google') FORMAT Null SETTINGS force_data_skipping_indices = 'idx_url_token', ignore_data_skipping_indices = 'idx_url_ngram,idx_url_bloom,idx_url_text'</query>
+<query>SELECT count(), sum(length(Title)) FROM ski WHERE URL LIKE '%yandex%' FORMAT Null SETTINGS force_data_skipping_indices = 'idx_url_ngram', ignore_data_skipping_indices = 'idx_url_token,idx_url_bloom,idx_url_text'</query>
+<query>SELECT count(), sum(length(Title)) FROM ski WHERE URL LIKE '%google%' FORMAT Null SETTINGS force_data_skipping_indices = 'idx_url_ngram', ignore_data_skipping_indices = 'idx_url_token,idx_url_bloom,idx_url_text'</query>
+<query>SELECT count(), sum(length(Title)) FROM ski WHERE multiSearchAny(URL, ['google', 'zqxjkvwy', 'wikipedia']) FORMAT Null SETTINGS force_data_skipping_indices = 'idx_url_ngram', ignore_data_skipping_indices = 'idx_url_token,idx_url_bloom,idx_url_text'</query>
+<query>
+    {bloom_group}
+    FORMAT Null
+</query>
+<query>SELECT count(), sum(length(Title)) FROM ski WHERE hasToken(URL, 'google') FORMAT Null SETTINGS use_skip_indexes = 0</query>
+<query>SELECT count(), sum(length(Title)) FROM ski WHERE URL LIKE '%google%' FORMAT Null SETTINGS use_skip_indexes = 0</query>
+<query>SELECT count(), sum(length(Title)) FROM ski WHERE hasToken(URL, 'zqxjkvwy') FORMAT Null SETTINGS use_skip_indexes = 0</query>
+
+<drop_query>DROP TABLE IF EXISTS ski SYNC</drop_query>
+
+</test>

@@ -1,3 +1,5 @@
+import re
+
 from praktika import Artifact, Docker, Secret
 from praktika.utils import MetaClasses, Utils
 
@@ -45,6 +47,10 @@ class CIFiles:
 
 
 BASE_BRANCH = "master"
+
+NIGHTLY_PERF_BATCH_JOBS = [f"{b}/4" for b in range(1, 5)]
+NIGHTLY_PERF_PLACEMENT = {}  # {"<test>.xml": "N/4" | "<extra_job>" | "skip"}, see tests/performance/README.md
+assert all(j in NIGHTLY_PERF_BATCH_JOBS or re.fullmatch("[a-z0-9_]+", j) for j in NIGHTLY_PERF_PLACEMENT.values()), NIGHTLY_PERF_PLACEMENT
 
 azure_secret = Secret.Config(
     name="azure_connection_string",
