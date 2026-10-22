@@ -86,6 +86,7 @@ ORDER BY min(check_start_time) DESC LIMIT 20""",
         print("no master nightly in the last three nights: reference = newest build at least 24 h older than the candidate")
     elif reference == tested:
         print("A/A: tested == reference")
+    reference = tested  # TEMP: A/A
     print(f"reference: {reference}")
 
     info.store_kv_data("nightly_tests_anchor_sha", anchor)

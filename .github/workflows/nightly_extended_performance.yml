@@ -49,10 +49,10 @@ jobs:
           . ./ci/tmp/praktika_setup_env.sh
           PYTHONUNBUFFERED=1 python3 -m praktika run 'Config Workflow' --workflow "NightlyExtendedPerformance" --ci --timestamp
 
-  performance_comparison_arm_release_master_head_nightly_1_4:
+  performance_comparison_arm_release_master_head_nightly_assets:
     runs-on: [self-hosted, arm-medium-storage]
     needs: [config_workflow]
-    name: "Performance Comparison (arm_release, master_head, nightly, 1/4)"
+    name: "Performance Comparison (arm_release, master_head, nightly, assets)"
     timeout-minutes: 965
     outputs:
       data: ${{ steps.run.outputs.DATA }}
@@ -81,12 +81,12 @@ jobs:
         id: run
         run: |
           . ./ci/tmp/praktika_setup_env.sh
-          PYTHONUNBUFFERED=1 python3 -m praktika run 'Performance Comparison (arm_release, master_head, nightly, 1/4)' --workflow "NightlyExtendedPerformance" --ci --timestamp
+          PYTHONUNBUFFERED=1 python3 -m praktika run 'Performance Comparison (arm_release, master_head, nightly, assets)' --workflow "NightlyExtendedPerformance" --ci --timestamp
 
-  performance_comparison_arm_release_master_head_nightly_2_4:
+  performance_comparison_arm_release_master_head_nightly_engine:
     runs-on: [self-hosted, arm-medium-storage]
     needs: [config_workflow]
-    name: "Performance Comparison (arm_release, master_head, nightly, 2/4)"
+    name: "Performance Comparison (arm_release, master_head, nightly, engine)"
     timeout-minutes: 965
     outputs:
       data: ${{ steps.run.outputs.DATA }}
@@ -115,12 +115,12 @@ jobs:
         id: run
         run: |
           . ./ci/tmp/praktika_setup_env.sh
-          PYTHONUNBUFFERED=1 python3 -m praktika run 'Performance Comparison (arm_release, master_head, nightly, 2/4)' --workflow "NightlyExtendedPerformance" --ci --timestamp
+          PYTHONUNBUFFERED=1 python3 -m praktika run 'Performance Comparison (arm_release, master_head, nightly, engine)' --workflow "NightlyExtendedPerformance" --ci --timestamp
 
-  performance_comparison_arm_release_master_head_nightly_3_4:
+  performance_comparison_arm_release_master_head_nightly_formats:
     runs-on: [self-hosted, arm-medium-storage]
     needs: [config_workflow]
-    name: "Performance Comparison (arm_release, master_head, nightly, 3/4)"
+    name: "Performance Comparison (arm_release, master_head, nightly, formats)"
     timeout-minutes: 965
     outputs:
       data: ${{ steps.run.outputs.DATA }}
@@ -149,12 +149,12 @@ jobs:
         id: run
         run: |
           . ./ci/tmp/praktika_setup_env.sh
-          PYTHONUNBUFFERED=1 python3 -m praktika run 'Performance Comparison (arm_release, master_head, nightly, 3/4)' --workflow "NightlyExtendedPerformance" --ci --timestamp
+          PYTHONUNBUFFERED=1 python3 -m praktika run 'Performance Comparison (arm_release, master_head, nightly, formats)' --workflow "NightlyExtendedPerformance" --ci --timestamp
 
-  performance_comparison_arm_release_master_head_nightly_4_4:
+  performance_comparison_arm_release_master_head_nightly_lakes:
     runs-on: [self-hosted, arm-medium-storage]
     needs: [config_workflow]
-    name: "Performance Comparison (arm_release, master_head, nightly, 4/4)"
+    name: "Performance Comparison (arm_release, master_head, nightly, lakes)"
     timeout-minutes: 965
     outputs:
       data: ${{ steps.run.outputs.DATA }}
@@ -183,38 +183,4 @@ jobs:
         id: run
         run: |
           . ./ci/tmp/praktika_setup_env.sh
-          PYTHONUNBUFFERED=1 python3 -m praktika run 'Performance Comparison (arm_release, master_head, nightly, 4/4)' --workflow "NightlyExtendedPerformance" --ci --timestamp
-
-  finish_workflow:
-    runs-on: [self-hosted, arm-tiny]
-    needs: [config_workflow, performance_comparison_arm_release_master_head_nightly_1_4, performance_comparison_arm_release_master_head_nightly_2_4, performance_comparison_arm_release_master_head_nightly_3_4, performance_comparison_arm_release_master_head_nightly_4_4]
-    if: ${{ always() }}
-    name: "Finish Workflow"
-    outputs:
-      data: ${{ steps.run.outputs.DATA }}
-      pipeline_status: ${{ steps.run.outputs.pipeline_status || 'undefined' }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ env.CHECKOUT_REF }}
-      - name: Prepare env script
-        run: |
-          rm -rf ./ci/tmp
-          mkdir -p ./ci/tmp
-          cat > ./ci/tmp/praktika_setup_env.sh << 'ENV_SETUP_SCRIPT_EOF'
-          export PYTHONPATH=.:./ci
-
-          cat > ./ci/tmp/workflow_job.json << 'EOF'
-          ${{ toJson(job) }}
-          EOF
-          cat > ./ci/tmp/workflow_status.json << 'EOF'
-          ${{ toJson(needs) }}
-          EOF
-          ENV_SETUP_SCRIPT_EOF
-
-      - name: Run
-        id: run
-        run: |
-          . ./ci/tmp/praktika_setup_env.sh
-          PYTHONUNBUFFERED=1 python3 -m praktika run 'Finish Workflow' --workflow "NightlyExtendedPerformance" --ci --timestamp
+          PYTHONUNBUFFERED=1 python3 -m praktika run 'Performance Comparison (arm_release, master_head, nightly, lakes)' --workflow "NightlyExtendedPerformance" --ci --timestamp

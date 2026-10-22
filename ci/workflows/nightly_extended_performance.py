@@ -64,7 +64,7 @@ workflow = Workflow.Config(
     enable_cache=False,
     secrets=SECRETS,
     enable_report=True,
-    enable_cidb=True,
+    enable_cidb=False,  # TEMP: no CIDB writes
     pre_hooks=[
         "python3 ./ci/jobs/scripts/workflow_hooks/store_data.py",
         "python3 ./ci/jobs/nightly_extended_performance.py --resolve",

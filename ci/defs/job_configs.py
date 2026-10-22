@@ -1965,7 +1965,7 @@ class JobConfigs:
     ).parametrize(
         *[
             Job.ParamSet(parameter=f"arm_release, master_head, nightly, {job}")
-            for job in NIGHTLY_PERF_BATCH_JOBS + sorted(set(NIGHTLY_PERF_PLACEMENT.values()) - {*NIGHTLY_PERF_BATCH_JOBS, "skip"})
+            for job in sorted(set(NIGHTLY_PERF_PLACEMENT.values()) - {*NIGHTLY_PERF_BATCH_JOBS, "skip"})  # TEMP: extra jobs only
         ]
     )
     docs_job_mintlify = Job.Config(

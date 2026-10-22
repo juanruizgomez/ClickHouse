@@ -39,6 +39,10 @@ from ci.praktika.result import Result
 from ci.praktika.settings import Settings
 from ci.praktika.utils import MetaClasses, Shell, Utils
 
+# TEMP (validation run): no CIDB writes, no system log export; any missed path fails instead of writing.
+CIDBCluster.do_insert_query = None
+log_export.get_credentials = log_export.start = None
+
 temp_dir = f"{Utils.cwd()}/ci/tmp"
 perf_wd = f"{temp_dir}/perf_wd"
 db_path = f"{perf_wd}/db0"
@@ -938,7 +942,7 @@ def write_ci_logs_sender_user(config_dir, binary):
 def create_log_export_configs():
     """Add the CI Logs cluster, and the user the export views run as, to the
     config of both servers. Must run before they are started."""
-    if Info().is_local_run:
+    if True:  # TEMP
         print("Local run - the system logs will not be exported")
         return True
     try:
@@ -2721,6 +2725,32 @@ def main():
     # Set python output encoding so that we can print queries with non-ASCII letters.
     # export PYTHONIOENCODING=utf-8
 
+    # TEMP (validation run): free disk, servers' RSS (kB), SeaweedFS data size every 10 s.
+    resources_path = f"{temp_dir}/resources.tsv"
+
+    def sample_resources():
+        def rss(server_path):
+            # The largest match: a wrapper shell has the server path in its command line too.
+            kb = [0]
+            for proc in Path("/proc").glob("[0-9]*"):
+                try:
+                    if f"{server_path}/config/config.xml".encode() in (proc / "cmdline").read_bytes():
+                        kb += [int(line.split()[1]) for line in (proc / "status").read_text().splitlines() if line.startswith("VmRSS:")]
+                except OSError:
+                    pass
+            return max(kb)
+
+        with open(resources_path, "a", encoding="utf-8") as f:
+            f.write("utc\tfree_bytes\tleft_rss_kb\tright_rss_kb\tseaweedfs_bytes\n")
+            while True:
+                fs = os.statvfs(temp_dir)
+                weed = subprocess.run(f"du -sb {temp_dir}/seaweedfs_data 2>/dev/null | cut -f1", shell=True, capture_output=True, text=True).stdout.strip()
+                f.write(f"{utc_now():%Y-%m-%d %H:%M:%S}\t{fs.f_bavail * fs.f_frsize}\t{rss(perf_left)}\t{rss(perf_right)}\t{weed or 0}\n")
+                f.flush()
+                time.sleep(10)
+
+    Thread(target=sample_resources, daemon=True).start()
+
     if res and JobStages.INSTALL_CLICKHOUSE in stages:
         print("Install ClickHouse")
         commands = [
@@ -3003,7 +3033,7 @@ def main():
                 logs.append(leftCH.log_file)
             results[-1].set_files(logs)
 
-    if res and JobStages.RESTART in stages and not info.is_local_run:
+    if False:  # TEMP: no system log export
         # After both servers are up and before anything is measured: from here
         # on their system log records are picked up by the export views, and
         # kept locally until the Export system logs stage below.
@@ -3088,7 +3118,7 @@ def main():
         )
         res = results[-1].is_ok()
 
-    if JobStages.EXPORT_LOGS in stages and not info.is_local_run:
+    if False:  # TEMP: no system log export
         # Release the system log records the two servers accumulated while the
         # tests were running. Strictly after the Tests stage, so that sending
         # them does not affect the measurements, and before the Report stage,
@@ -3165,7 +3195,7 @@ def main():
     # A dashboard input stays here, with the reason, until its upload succeeds.
     missing_dashboard_inputs = {}
 
-    if res and not info.is_local_run and JobStages.REPORT in stages:
+    if False:  # TEMP: no CIDB uploads
 
         def insert_raw_query_metrics_data():
             missing_dashboard_inputs[RAW_QUERY_METRICS_TABLE] = "the upload step failed"
@@ -3226,12 +3256,7 @@ def main():
             )
         )
 
-    if (
-        res
-        and not info.is_local_run
-        and not compare_against_release
-        and JobStages.REPORT in stages
-    ):
+    if False:  # TEMP: no CIDB uploads
 
         def insert_historical_data():
             missing_dashboard_inputs[HISTORICAL_DATA_TABLE] = "the upload step failed"
@@ -3275,7 +3300,7 @@ def main():
             )
         )
 
-    if res and not info.is_local_run and JobStages.REPORT in stages:
+    if False:  # TEMP: no CIDB uploads
 
         def insert_report_aggregates():
             """Upload all aggregate report TSVs and the tested-commits summary.
@@ -3501,7 +3526,7 @@ def main():
     result = Result.create_from(
         results=results,
         stopwatch=stop_watch,
-        files=files_to_attach + [f"{perf_wd}/report/all-query-metrics.tsv"],
+        files=files_to_attach + [f"{perf_wd}/report/all-query-metrics.tsv", resources_path],  # TEMP: sampler
         info=message,
     )
     if info.pr_number:

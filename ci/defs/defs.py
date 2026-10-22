@@ -49,7 +49,36 @@ class CIFiles:
 BASE_BRANCH = "master"
 
 NIGHTLY_PERF_BATCH_JOBS = [f"{b}/4" for b in range(1, 5)]
-NIGHTLY_PERF_PLACEMENT = {}  # {"<test>.xml": "N/4" | "<extra_job>" | "skip"}, see tests/performance/README.md
+NIGHTLY_PERF_PLACEMENT = {  # TEMP: A/A validation run
+    "iceberg_deletes_scale.xml": "lakes",
+    "iceberg_write_scale.xml": "lakes",
+    "iceberg_scale_manifests.xml": "lakes",
+    "parquet_s3_read.xml": "lakes",
+    "iceberg_compaction.xml": "lakes",
+    "iceberg_time_travel_evolution.xml": "lakes",
+    "lakes_cross_format.xml": "lakes",
+    "iceberg_rest_catalog.xml": "lakes",
+    "join_algorithms_sf10.xml": "lakes",
+    "formats_hits_read.xml": "formats",
+    "formats_hits_write.xml": "formats",
+    "parquet_pushdown_long.xml": "formats",
+    "arrow_flight_loopback.xml": "formats",
+    "job.xml": "assets",
+    "vector_index_laion.xml": "assets",
+    "json_bluesky.xml": "assets",
+    "encodings_hits.xml": "assets",
+    "mutations_big_table.xml": "engine",
+    "skip_index_text_hits.xml": "engine",
+    "insert_async_dedup.xml": "engine",
+    "external_sort_hits.xml": "engine",
+    "query_shapes_hits.xml": "engine",
+    "merges_optimize_final.xml": "engine",
+    "primary_key_wide_partitions.xml": "engine",
+    "projections_hits.xml": "engine",
+    "external_aggregation_hits.xml": "engine",
+    "analyzer_large_queries.xml": "engine",
+    "skip_index_minmax_set_hits.xml": "engine",
+}  # {"<test>.xml": "N/4" | "<extra_job>" | "skip"}, see tests/performance/README.md
 assert all(j in NIGHTLY_PERF_BATCH_JOBS or re.fullmatch("[a-z0-9_]+", j) for j in NIGHTLY_PERF_PLACEMENT.values()), NIGHTLY_PERF_PLACEMENT
 
 azure_secret = Secret.Config(
